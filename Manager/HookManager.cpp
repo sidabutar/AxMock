@@ -36,7 +36,7 @@ PVOID CHookManager::Find(const PVOID object)
 	PVOID vtbl = ((IUnknown *)object)->lpVtbl;
 
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	
 	swprintf_s(debugstr, 200, L"CHookManager::Find: object %08x, vtable: %08x", object, vtbl);
 	OutputDebugString(debugstr);
@@ -81,7 +81,7 @@ BOOLEAN CHookManager::AddRef(IDispatch *object, REFCLSID clsid)
 	IDispatchVtbl *vtbl = object->lpVtbl;
 
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	
 	swprintf_s(debugstr, 200, L"CHookManager::AddRef(IDispatch): object %08x, vtable: %08x", object, vtbl);
 	OutputDebugString(debugstr);
@@ -157,7 +157,7 @@ BOOLEAN CHookManager::AddRef(IDispatchEx *object, REFCLSID clsid)
 	IDispatchExVtbl *vtbl = object->lpVtbl;
 
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	
 	swprintf_s(debugstr, 200, L"[CHookManager::AddRef(IDispatchEx)] object %08x, vtable: %08x", object, vtbl);
 	OutputDebugString(debugstr);
@@ -234,9 +234,9 @@ BOOLEAN CHookManager::AddRef(IClassFactory *object, REFCLSID clsid)
 
 #ifdef _DEBUG
 	LPOLESTR sclsid;
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	StringFromCLSID(clsid, &sclsid);
-	swprintf_s(debugstr, 200, L"CHookManager::AddRef(IClassFactory): class: %s, object: %08x, vtable: %08x", sclsid, object, vtbl);
+	swprintf_s(debugstr, 200, L"[CHookManager::AddRef(IClassFactory)] class: %s, object: %08x, vtable: %08x", sclsid, object, vtbl);
 	OutputDebugString(debugstr);
 #endif
 
@@ -261,12 +261,12 @@ BOOLEAN CHookManager::AddRef(IClassFactory *object, REFCLSID clsid)
 	//If no pInfo exists create a new pInfo with clsid and vtbl
 	if(pInfo == NULL)
 	{
-		OutputDebugString(L"Tiffany: go to new a IClassFactoryHookInfo...");
+		OutputDebugString(L"[CHookManager::AddRef(IClassFactory)] go to new a IClassFactoryHookInfo...");
 		pInfo = new CIClassFactoryHookInfo(clsid, vtbl);
 		if(!pInfo)
 		{
 #ifdef _DEBUG
-			OutputDebugString(L"CHookManager::AddRef: failed to allocate hook info");
+			OutputDebugString(L"[CHookManager::AddRef(IClassFactory)] failed to allocate hook info");
 #endif
 
 			result = FALSE;
@@ -278,7 +278,7 @@ BOOLEAN CHookManager::AddRef(IClassFactory *object, REFCLSID clsid)
 
 	pInfo->AddRef(object, clsid, FALSE);
 #ifdef _DEBUG
-	OutputDebugString(L"Tiffany: AddRef Finished");
+	OutputDebugString(L"[CHookManager::AddRef(IClassFactory)] AddRef Finished");
 #endif
 ERROR_ABORT:
 	LeaveCriticalSection(&m_cs);
@@ -294,9 +294,9 @@ VOID CHookManager::Release(CBaseHookInfo *HookInfo, const PVOID object, const PV
 {
 
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	
-	swprintf_s(debugstr, 200, L"CHookManager::Release: object %08x, vftable %08x", object, vtbl);
+	swprintf_s(debugstr, 200, L"[CHookManager::Release] object %08x, vftable %08x", object, vtbl);
 	OutputDebugString(debugstr);
 #endif
 

@@ -150,7 +150,7 @@ BOOLEAN CEmuList::IsInEmuList(LPCOLESTR progid, LPCLSID pclsid = NULL)
 			break;
 		}
 		else{
-			swprintf_s(debugstr, 200, L"[CEmuList::IsInEmuList] Find the clsid %08x, pclsid %08x", (*itr) ->m_clsid, pclsid);
+			swprintf_s(debugstr, 200, L"[CEmuList::IsInEmuList] Go on finding the clsid %08x, pclsid %08x", (*itr) ->m_clsid, pclsid);
 			OutputDebugString(debugstr);
 		}
 	}
@@ -186,7 +186,7 @@ CEmuList::~CEmuList(void)
 /// See Chengyu Song's code as reference
 BOOLEAN CEmuList::GetHookName(REFCLSID pclsid, BSTR &hookname)
 {
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 #ifdef _DEBUG
 	swprintf_s(debugstr, 200, L"[CEmuList::GetHookName], clsid %08x", pclsid);
 	OutputDebugString(debugstr);

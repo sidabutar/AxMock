@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include <stdio.h>
 #include <iostream>
+#include <fstream>
 #include <wchar.h>
 #include <ole2.h>
 
@@ -13,6 +14,7 @@
 
 #include "madCHook/madCHook.h"
 
+#define AXMOCKOUTPUT "C:\\Axmock_TA.log"
 using namespace COMSniffer;
 using namespace std;
 
@@ -28,10 +30,14 @@ CEmuList *g_EmuList;
 /// Global Existing List
 CExtList *g_ExtList;
 
-IClassFactory *emuppv;
-IDispatch *emuIDispatch;
-IDispatchEx *emuIDispatchEx;
-
+IClassFactory *emuppv, *create_recFactory, *recppv;
+LPVOID *create_recppv;
+IDispatch *emuIDispatch, *recIDispatch;
+IDispatchEx *emuIDispatchEx, *recIDispatchEx;
+DISPID recParamDisp[20];
+const int MAXPARAMETER=20;
+int invokeCount = 0;
+ofstream axmockOutput;
 typedef HRESULT (WINAPI *COCREATEINSTANCEEX)(
 	REFCLSID rclsid,
 	IUnknown * punkOuter,
@@ -78,9 +84,9 @@ HRESULT WINAPI MyCoCreateInstanceEx(
 	IDispatch *lpDispatch;
 	IDispatchEx *lpDispatchEx;
 	DWORD i;
+	OLECHAR debugstr[MAX_PATH];
 #ifdef _DEBUG
 	LPOLESTR clsid;
-	OLECHAR debugstr[200];
 	StringFromCLSID(rclsid, &clsid);
 	swprintf_s(debugstr, 200, L"[CoCreateInstanceEx] ClassID is %s", clsid);
 	OutputDebugString(debugstr);
@@ -91,12 +97,14 @@ HRESULT WINAPI MyCoCreateInstanceEx(
 	result = OriginCoCreateInstanceEx(rclsid, punkOuter, dwClsCtx, pServerInfo, cmq, pResults);
 	if(FAILED(result)){
 #ifdef _DEBUG
-		swprintf_s(debugstr, 200, L"[CoCreateInstanceEx] Instance Creation Error. Result: %0x", result);
+		swprintf_s(debugstr, MAX_PATH, L"[CoCreateInstanceEx] Instance Creation Error. Result: %0x", result);
 		OutputDebugString(debugstr);
 #endif
+		OriginCoCreateInstanceEx(CLSID_RECORDER, punkOuter, dwClsCtx, pServerInfo, cmq, pResults);
 		goto ERROR_ABORT;
 	}
 	// 2. check if the CLSID is in monitor list (blacklist)
+	// !! put recorder into AvailableList!
 	if(!g_AList->IsInAvailableList(rclsid) && !g_EmuList->IsInEmuList(rclsid) && !g_ExtList->IsInExtList(rclsid)){
 #ifdef _DEBUG
 		OutputDebugString(L"[CoCreateInstanceEx] UnMonitor one, goto error_abort");
@@ -204,10 +212,10 @@ HRESULT WINAPI MyCoGetClassObject(
 {
 	HRESULT result, re;
 	IClassFactory *lpFactory;
-	
+	bool record = FALSE;
 #ifdef _DEBUG
 	LPOLESTR clsid;
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 #endif
 
 #ifdef _DEBUG
@@ -218,15 +226,52 @@ HRESULT WINAPI MyCoGetClassObject(
 #endif
 	// 1. call the original function
 	result = RealCoGetClassObject(rclsid, dwClsContext, pServerInfo, riid, ppv);
-	// 1+. If it is not in the moniter list, let it go
-	if(!g_AList->IsInAvailableList(rclsid) && !g_EmuList->IsInEmuList(rclsid) && !g_ExtList->IsInExtList(rclsid)){
-		OutputDebugString(L"[CoGetClassObject] real one, goto error_abort");
-		return result;
-	}
+	// 1+. If failed, use recorder to record the function
 	if(FAILED(result)){
-		OutputDebugString(L"[CoGetClassObject] Fake one, creation error");
-		return result;
+#ifdef _DEBUG
+		StringFromCLSID(rclsid, &clsid);
+		swprintf_s(debugstr, 200, L"[CoGetClassObject] Create Factory error, Class ID %s, Interface ID %08x", clsid, riid);
+		OutputDebugString(debugstr);
+		CoTaskMemFree(clsid);
+#endif
+		
+		record = TRUE;
+		result = RealCoGetClassObject(CLSID_RECORDER, dwClsContext, pServerInfo, riid, ppv);
+		*ppv = *((void**)&recppv);
+		
+#ifdef _DEBUG
+		swprintf_s(debugstr, 200, L"[CoGetClassObject] Create Recorder Factory SUCCESSFUL, ppv is %08p", ppv);
+		OutputDebugString(debugstr);
+#endif	
+		
+#ifdef _DEBUG
+		swprintf_s(debugstr, MAX_PATH, L"[CoGetClassObject] Create Recorder Factory SUCCESSFUL, *ppv is %08p", *ppv);
+		OutputDebugString(debugstr);
+		swprintf_s(debugstr, MAX_PATH, L"[CoGetClassObject] Create Recorder Factory SUCCESSFUL, recppv is %08p", (void*) recppv);
+		OutputDebugString(debugstr);
+		
+#endif		
+		
 	}
+	
+	else{
+	// 1+. If it is not in the moniter list, let it go
+		if(!g_AList->IsInAvailableList(rclsid) && !g_EmuList->IsInEmuList(rclsid) && !g_ExtList->IsInExtList(rclsid)){
+			OutputDebugString(L"[CoGetClassObject] real one, goto error_abort");
+			return result;
+		}
+	}
+	/* 1+. if fail to call, record the progid
+	if(FAILED(result)){
+#ifdef _DEBUG
+		StringFromCLSID(rclsid, &clsid);
+		swprintf_s(debugstr, 200, L"[CoGetClassObject] Create Factory error, Class ID %s, Interface ID %08x", clsid, riid);
+		OutputDebugString(debugstr);
+		CoTaskMemFree(clsid);
+#endif
+		return recppv;
+	}*/
+
 	// 2. check if the interface queried is IClassFactory
 	if(IsEqualIID(riid, IID_IClassFactory))
 	{
@@ -234,7 +279,11 @@ HRESULT WINAPI MyCoGetClassObject(
 		OutputDebugString(L"[CoGetClassObject] query interface is IClassFactory");
 #endif
 		// 2.1 if is, copy the interface pointer
+//		if(record)
+//			lpFactory = recppv;
+//		else
 		lpFactory = (IClassFactory *)(*ppv);
+
 		lpFactory->lpVtbl->AddRef(lpFactory);
 	}
 	else
@@ -303,17 +352,21 @@ HRESULT WINAPI MyCLSIDFromProgID(
 	LPCLSID pclsid
 	)
 {
+	WCHAR debugstr[MAX_PATH];
 #ifdef _DEBUG
 	OutputDebugString(L"[CLSIDFromProgID] MyCLSIDFromProgID");
 #endif
-	HRESULT re;
+	swprintf_s(debugstr, MAX_PATH, L"The result %0x", pclsid);
+	OutputDebugString(debugstr);
+	
+	HRESULT result;
 	//LPCLSID tpclsid = new CLSID;
 	if(g_EmuList -> IsInEmuList(lpszProgID, pclsid)){
 #ifdef _DEBUG
 		OutputDebugString(L"[CLSIDFromProgID] In the Emulist");
 #endif
 		//pclsid = tpclsid;
-		re = TRUE;
+		result = TRUE;
 	}
 	// temporary disabled
 	//else if (g_Extlist -> IsInExtlist(lpszProgID, pclsid))
@@ -323,10 +376,29 @@ HRESULT WINAPI MyCLSIDFromProgID(
 #ifdef _DEBUG
 		OutputDebugString(L"[CLSIDFromProgID] Not in the Emulist");
 #endif	
-		re = RealCLSIDFromProgID(lpszProgID, pclsid);
-	}
-	return re;
+		result = RealCLSIDFromProgID(lpszProgID, pclsid);
+		swprintf_s(debugstr, MAX_PATH, L"The result %d", result);
+		OutputDebugString(debugstr);
+		swprintf_s(debugstr, MAX_PATH, L"The result %0x", pclsid);
+		OutputDebugString(debugstr);
 	
+		if(result == CO_E_CLASSSTRING){
+#ifdef _DEBUG
+			
+			swprintf_s(debugstr, MAX_PATH, L"[CLSIDFromProgID] Not Exists Such ProgID: %s", lpszProgID);
+			OutputDebugString(debugstr);
+#endif
+			*pclsid = CLSID_RECORDER;
+			result = TRUE;
+		}
+		else{
+#ifdef _DEBUG
+			swprintf_s(debugstr, MAX_PATH, L"[CLSIDFromProgID] True calling");
+			OutputDebugString(debugstr);
+#endif		
+		}
+	}
+	return result;
 	
 #if 0 //temporary disabled
 
@@ -350,6 +422,59 @@ HRESULT WINAPI MyCLSIDFromProgID(
 #endif
 }
 
+int PreWorkRecorder(){
+	int result;
+	WCHAR debugstr[MAX_PATH], MethodStr[MAX_PATH];
+	
+	// (1) Create Class Factory
+	result = CoGetClassObject(CLSID_RECORDER, CLSCTX_SERVER, NULL, IID_IClassFactory, (void **)&recppv);
+	if(FAILED(result)){
+#ifdef _DEBUG
+		swprintf_s(debugstr, MAX_PATH, L"[PreWorkRecorder] Recorder ClassFactory Creation Error. Result Number: %0x", result);
+		OutputDebugString(debugstr);
+#endif
+		return FALSE;
+	}
+#ifdef _DEBUG
+	swprintf_s(debugstr, MAX_PATH, L"[PreWorkRecorder] Recorder ClassFactory Creation Successful. ClassFactory: %08x", recppv);
+	OutputDebugString(debugstr);
+#endif
+	// (2) Using Class factory to create instance
+	if(FAILED(recppv ->lpVtbl ->CreateInstance(recppv, NULL,IID_IDispatch, (void **)&recIDispatch))){
+#ifdef _DEBUG
+		OutputDebugString(L"[PreWorkRecorder] Recorder Instance Creation & IDispatch interface Error");
+#endif
+		return FALSE;
+	}
+	
+	// (3) Using QueryInterface to get IDispatchEx interface
+	if(FAILED(recIDispatch ->lpVtbl->QueryInterface(recIDispatch, IID_IDispatchEx, (void**)&recIDispatchEx)))
+	{
+#ifdef _DEBUG
+		OutputDebugString(L"[PreWorkRecorder] Recorder IDispatchEx interface Error");
+#endif
+		return FALSE;
+	}
+
+	// (4) Using GetDispID to restore all the functions according to different parameters
+	int i;
+	BSTR BstrMethodStr;
+	memset(recParamDisp, 0, sizeof(recParamDisp));
+	for(i = 1; i < MAXPARAMETER; i++){
+		swprintf_s(MethodStr, MAX_PATH, L"Parameter%d", i);
+		OutputDebugString(MethodStr);
+		BstrMethodStr = ::SysAllocString(MethodStr);
+		if(FAILED(recIDispatchEx->lpVtbl->GetDispID(recIDispatchEx, BstrMethodStr, fdexNameCaseSensitive, &recParamDisp[i]))){
+#ifdef _DEBUG
+			OutputDebugString(L"[PreWorkRecorder] Method Interface Creation Error");
+#endif
+			return FALSE;
+		}
+		
+	}
+	return TRUE;
+}
+
 ///
 /// @brief DLL entry point.
 ///
@@ -369,12 +494,12 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 					 )
 {
 	//HMODULE hHookDll;
-
+	//axmockOutput.open(AXMOCKOUTPUT);
+	//axmockOutput.close();
 	switch (ul_reason_for_call)
 	{
 		// Initializing process
 	case DLL_PROCESS_ATTACH:
-
 		// 1. create the HookManager
 		g_HookManager = new CHookManager;
 		if(!g_HookManager)
@@ -453,45 +578,33 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		swprintf_s(debugstr, MAX_PATH, L"[Main] Emulator IDispatchEx interface: %08x", emuIDispatchEx);
 		OutputDebugString(debugstr);
 
-		/*
-		DISPID *ppid;
-		ppid = new DISPID;
-		result = emuIDispatchEx ->lpVtbl -> GetDispID(emuIDispatchEx, ::SysAllocString(L"CaptureActiveXServer2Hello"), fdexNameCaseSensitive, ppid);
-		if(FAILED(result))
-			OutputDebugString(L"[Main]!!!!!!!!!!!!!!!!!!!!!!!! failed GetDispID");
-		*/
+
+		PreWorkRecorder();
 
 		// 6. hook COM library APIs
 #ifdef _DEBUG
 		OutputDebugString(L"[Main] Hook CoGetClassObject & CoCreateInstanceEx");
 #endif
 
-		//hHookDll = GetModuleHandle(L"MwSniffDll.dll");
-/*
-#if defined _INSPECTOR
-		SendMsg = (SENDMSG)GetProcAddress(hHookDll, "SendMsg");
-#endif
-*/
 		HookAPI("ole32.dll", "CoGetClassObject", MyCoGetClassObject, (PVOID *)&RealCoGetClassObject, SAFE_HOOKING);
 		//HookAPI("ole32.dll", "CoCreateInstanceEx", MyCoCreateInstanceEx, (PVOID *)&OriginCoCreateInstanceEx, SAFE_HOOKING);
 		HookAPI("ole32.dll", "CLSIDFromProgID", MyCLSIDFromProgID, (PVOID *)&RealCLSIDFromProgID, SAFE_HOOKING);
-		OutputDebugString(L"Tiffany:Hooking finished");
-
+		OutputDebugString(L"[Main] Hooking finished");
+		
 		break;
-
+	
 	case DLL_PROCESS_DETACH:
+		OutputDebugString(L"[Main] DETACH Begin");
 		delete g_HookManager;
 		delete g_AList;
 #ifdef _DEBUG
 		OutputDebugString(L"[Main] Unhook CoGetClassObject & CoCreateInstanceEx");
 #endif
 
-		//hHookDll = GetModuleHandle(L"MwSniffDll.dll");
-
 		UnhookAPI((PVOID *)&RealCoGetClassObject);
-		UnhookAPI((PVOID *)&CoCreateInstanceEx);
+		//UnhookAPI((PVOID *)&CoCreateInstanceEx);
 		UnhookAPI((PVOID *)&CLSIDFromProgID);
-
+		
 		OutputDebugString(L"[Main] Unhook complete");
 
 		break;

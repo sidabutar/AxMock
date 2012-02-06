@@ -187,7 +187,7 @@ CExtList::~CExtList(void)
 /// See Chengyu Song's code as reference
 BOOLEAN CExtList::GetHookName(REFCLSID pclsid, BSTR &hookname)
 {
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 #ifdef _DEBUG
 	swprintf_s(debugstr, 200, L"[CExtList::GetHookName], clsid %08x", pclsid);
 	OutputDebugString(debugstr);

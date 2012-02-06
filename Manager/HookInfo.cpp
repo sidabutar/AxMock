@@ -33,7 +33,7 @@ CLSID CBaseHookInfo::GetCLSID(const PVOID object)
 LONG CBaseHookInfo::AddRef(const PVOID object, REFCLSID clsid, BOOLEAN locked = TRUE)
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR sclsid;
 
 	StringFromCLSID(clsid, &sclsid);
@@ -78,7 +78,7 @@ CIDispatchHookInfo::CIDispatchHookInfo(REFCLSID rclsid, IDispatchVtbl *vtbl)
 : CBaseHookInfo(rclsid, vtbl)
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 
 	StringFromCLSID(rclsid, &clsid);
@@ -94,6 +94,14 @@ CIDispatchHookInfo::CIDispatchHookInfo(REFCLSID rclsid, IDispatchVtbl *vtbl)
 	// save vtable functions
 	this->QueryInterface = vtbl->QueryInterface;
 	this->Release = vtbl->Release;
+
+	swprintf_s(debugstr, MAX_PATH, L"[CIDispatchHookInfo]!!!!!!vftable is %08x, is that useful??", vtbl);
+	OutputDebugString(debugstr);
+
+	swprintf_s(debugstr, MAX_PATH, L"[CIDispatchHookInfo]!!!!!!vftable is %08x, is that useful??", vtbl->Invoke);
+	OutputDebugString(debugstr);
+
+
 #ifdef _DEBUG
 	if(this->Release == MyRelease)
 	{
@@ -124,7 +132,7 @@ CIDispatchHookInfo::CIDispatchHookInfo(REFCLSID rclsid, IDispatchVtbl *vtbl)
 	if(!VirtualProtect(vtbl, sizeof(IDispatchVtbl), PAGE_EXECUTE_READWRITE, &dwOldProtectionFlags))
 	{
 #ifdef _DEBUG
-		OutputDebugString(L"CIDispatchHookInfo: unable to change virtual protect flag for hooking.");
+		OutputDebugString(L"[CIDispatchHookInfo] unable to change virtual protect flag for hooking.");
 #endif
 		return;
 	}
@@ -141,7 +149,7 @@ CIDispatchHookInfo::CIDispatchHookInfo(REFCLSID rclsid, IDispatchVtbl *vtbl)
 CIDispatchHookInfo::~CIDispatchHookInfo()
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 
 	StringFromCLSID(this->m_clsid, &clsid);
@@ -251,11 +259,11 @@ CIClassFactoryHookInfo::CIClassFactoryHookInfo(REFCLSID rclsid, IClassFactoryVtb
 : CBaseHookInfo(rclsid, vtbl)
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 
 	StringFromCLSID(rclsid, &clsid);
-	swprintf_s(debugstr, 200, L"Tiffany: CIClassFactoryHookInfo: Hook IClassFactory for clsid: %s, vtable %08x, &vtable->Release %08x", clsid, vtbl, &vtbl->Release);
+	swprintf_s(debugstr, 200, L"[CIClassFactoryHookInfo] Hook IClassFactory for clsid: %s, vtable %08x, &vtable->Release %08x", clsid, vtbl, &vtbl->Release);
 	OutputDebugString(debugstr);
 	CoTaskMemFree(clsid);
 #endif
@@ -281,7 +289,7 @@ CIClassFactoryHookInfo::CIClassFactoryHookInfo(REFCLSID rclsid, IClassFactoryVtb
 	if(!VirtualProtect(vtbl, sizeof(IClassFactoryVtbl), PAGE_EXECUTE_READWRITE, &dwOldProtectionFlags))
 	{
 #ifdef _DEBUG
-		OutputDebugString(L"CIClassFactoryHookInfo: unable to change virtual protect flag for hooking.");
+		OutputDebugString(L"[CIClassFactoryHookInfo] unable to change virtual protect flag for hooking.");
 #endif
 		return;
 	}
@@ -296,20 +304,21 @@ CIClassFactoryHookInfo::CIClassFactoryHookInfo(REFCLSID rclsid, IClassFactoryVtb
 CIClassFactoryHookInfo::~CIClassFactoryHookInfo()
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 
 	StringFromCLSID(this->m_clsid, &clsid);
-	swprintf_s(debugstr, 200, L"Unhook IClassFactory for clsid: %s, vtable %08x", clsid, this->m_vtbl);
+	swprintf_s(debugstr, 200, L"[CIClassFactoryHookInfo] Unhook IClassFactory for clsid: %s, vtable %08x", clsid, this->m_vtbl);
 	OutputDebugString(debugstr);
 	CoTaskMemFree(clsid);
 #endif
 
 	IClassFactoryVtbl *vtbl = (IClassFactoryVtbl *)this->m_vtbl;
-
+	OutputDebugString(L"111111111111");
 	if(vtbl->CreateInstance == MyCreateInstance)
 	{
 		// unhook vtable
+		OutputDebugString(L"22222222222222222");
 		DWORD dwOldProtectionFlags, dwOldProtectionFlags2;
 
 		if(!VirtualProtect(vtbl, sizeof(IClassFactoryVtbl), PAGE_EXECUTE_READWRITE, &dwOldProtectionFlags))
@@ -326,9 +335,10 @@ CIClassFactoryHookInfo::~CIClassFactoryHookInfo()
 			OutputDebugString(debugstr);
 		}
 #endif
-
+		
 		InterlockedExchangePointer(&vtbl->CreateInstance, this->CreateInstance);
 #ifdef _DEBUG
+		
 		if(vtbl->CreateInstance == MyCreateInstance)
 		{
 			swprintf_s(debugstr, 200, L"~CIClassFactoryHookInfo(): exchange pointer failed for CreateInstance, %08x, %08x, %08x",
@@ -339,13 +349,14 @@ CIClassFactoryHookInfo::~CIClassFactoryHookInfo()
 		
 		VirtualProtect(vtbl, sizeof(IClassFactoryVtbl), dwOldProtectionFlags, &dwOldProtectionFlags2);
 	}
+	else OutputDebugString(L"333333333333333333");
 }
 
 CIDispatchExHookInfo::CIDispatchExHookInfo(REFCLSID rclsid, IDispatchExVtbl *vtbl)
 : CBaseHookInfo(rclsid, vtbl)
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 	StringFromCLSID(rclsid, &clsid);
 	swprintf_s(debugstr, L"Tiffany: Hook IDispatchEx for clsid: %s, vtable %08x", clsid, vtbl);
@@ -411,7 +422,7 @@ CIDispatchExHookInfo::CIDispatchExHookInfo(REFCLSID rclsid, IDispatchExVtbl *vtb
 CIDispatchExHookInfo::~CIDispatchExHookInfo()
 {
 #ifdef _DEBUG
-	OLECHAR debugstr[200];
+	OLECHAR debugstr[MAX_PATH];
 	LPOLESTR clsid;
 #endif
 #ifdef _DEBUG
